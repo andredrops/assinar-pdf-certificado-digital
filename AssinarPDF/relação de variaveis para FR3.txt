@@ -1,0 +1,8 @@
+Adicionar os seguintes label e variaveis no FR3:
+
+Assinado por: [AssinadoPor]
+CPF/CNPJ: [CpfCnpjAssinante]
+Data/Hora assinatura: [DataHoraAssinatura]
+Algoritmo: [AlgoritmoAssinatura]
+ID validacao: [IdValidacao]
+Validar em: [UrlValidacao]
