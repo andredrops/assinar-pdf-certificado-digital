@@ -50,6 +50,7 @@ type
     procedure GerarPDF(out AArquivoPDF: string);
     procedure ExportReportToPdf(const AOutputPdfPath: string);
     procedure OpenFileInDefaultViewer(const AFilePath: string);
+    procedure ValidateGeneratedPdf(const AFilePath: string);
     function BuildDiagnosticsLogName: string;
     procedure WriteDiagnosticsLog(const ALogFileName: string);
     { Private declarations }
@@ -68,7 +69,7 @@ uses
  frxDesgn, frxExportPDF, System.StrUtils, Winapi.ShellAPI, uAssinarPDF;
 
 const
-  C_JSignPdfCliRelativePath = 'C:\Tools\JSignPdf\app\JSignPdf\JSignPdfC.exe';
+  C_JSignPdfCliRelativePath = '.\AssinarPDF\BIN\JSignPdfC.exe';
 
 procedure TForm1.FormShow(Sender: TObject);
 begin
@@ -92,18 +93,29 @@ begin
 end;
 
 function TForm1.GetReportPath: string;
+var
+  LPath1: string;
+  LPath2: string;
 begin
-  Result := GetAppDir + 'RelClientes.fr3';
+  LPath1 := ExpandFileName(GetAppDir + 'RelClientes.fr3');
+  LPath2 := ExpandFileName(GetAppDir + '..\..\RelClientes.fr3');
+
+  if FileExists(LPath1) then
+    Exit(LPath1);
+  if FileExists(LPath2) then
+    Exit(LPath2);
+
+  Result := LPath1;
 end;
 
 function TForm1.GetSignedOutputDir: string;
 begin
-  Result := IncludeTrailingPathDelimiter(GetAppDir + 'PDF_Assinados');
+  Result := IncludeTrailingPathDelimiter(GetAppDir + 'AssinarPDF\PDFAssinados');
 end;
 
 function TForm1.GetJSignPdfCliPath: string;
 begin
-  Result := C_JSignPdfCliRelativePath;
+  Result := ExpandFileName(GetAppDir + C_JSignPdfCliRelativePath);
 end;
 
 function TForm1.BuildUnsignedPdfName: string;
@@ -303,28 +315,61 @@ end;
 
 procedure TForm1.ExportReportToPdf(const AOutputPdfPath: string);
 var
-  PdfExport: TfrxPDFExport;
+  LPdfExport: TfrxPDFExport;
+  LPrepared: Boolean;
 begin
+  if not FileExists(GetReportPath) then
+    raise Exception.Create('Arquivo de relatorio nao encontrado em: ' + GetReportPath);
+
   frxRelClientes.LoadFromFile(GetReportPath);
   ApplySignatureStampVariablesToReport;
-  frxRelClientes.PrepareReport(True);
+  LPrepared := frxRelClientes.PrepareReport(True);
+  if not LPrepared then
+    raise Exception.Create('Falha ao preparar o relatorio para exportacao PDF.');
 
-  PdfExport := TfrxPDFExport.Create(nil);
+  LPdfExport := TfrxPDFExport.Create(nil);
   try
-    PdfExport.ShowDialog := False;
-    PdfExport.OpenAfterExport := False;
-    PdfExport.FileName := AOutputPdfPath;
-    PdfExport.OverwritePrompt := False;
-    frxRelClientes.Export(PdfExport);
+    LPdfExport.ShowDialog := False;
+    LPdfExport.OpenAfterExport := False;
+    LPdfExport.FileName := AOutputPdfPath;
+    LPdfExport.OverwritePrompt := False;
+    frxRelClientes.Export(LPdfExport);
   finally
-    PdfExport.Free;
+    LPdfExport.Free;
   end;
+
+  ValidateGeneratedPdf(AOutputPdfPath);
 end;
 
 procedure TForm1.GerarPDF(out AArquivoPDF: string);
 begin
-  AArquivoPDF := GetAppDir + BuildUnsignedPdfName;
+  ForceDirectories(GetSignedOutputDir);
+  AArquivoPDF := IncludeTrailingPathDelimiter(GetSignedOutputDir) + BuildUnsignedPdfName;
   ExportReportToPdf(AArquivoPDF);
+end;
+
+procedure TForm1.ValidateGeneratedPdf(const AFilePath: string);
+var
+  LContent: string;
+  LFileStream: TFileStream;
+  LFileSize: Int64;
+begin
+  if not FileExists(AFilePath) then
+    raise Exception.Create('PDF nao foi gerado: ' + AFilePath);
+
+  LFileStream := TFileStream.Create(AFilePath, fmOpenRead or fmShareDenyNone);
+  try
+    LFileSize := LFileStream.Size;
+  finally
+    LFileStream.Free;
+  end;
+
+  if LFileSize < 1024 then
+  begin
+    LContent := TFile.ReadAllText(AFilePath, TEncoding.ANSI);
+    if Pos('/Count 0', LContent) > 0 then
+      raise Exception.Create('PDF gerado sem paginas (/Count 0). Verifique o FR3, dataset e variaveis de relatorio.');
+  end;
 end;
 
 procedure TForm1.SetReportVariable(const AName, AValue: string);
@@ -467,30 +512,35 @@ var
   LArquivoPDF: string;
   LResultado: TAssinarPDFResultado;
 begin
-  LAssinador := TAssinarPDF.New;
-  LAssinador.SelecionarCertificado;
-  LCertificado := LAssinador.GetCertificadoSelecionado;
-  if not LCertificado.Selecionado then
-  begin
-    MessageDlg('Assinatura cancelada pelo usuario.', mtWarning, [mbOK], 0);
-    Exit;
+  try
+    LAssinador := TAssinarPDF.New;
+    LAssinador.SelecionarCertificado;
+    LCertificado := LAssinador.GetCertificadoSelecionado;
+    if not LCertificado.Selecionado then
+    begin
+      MessageDlg('Assinatura cancelada pelo usuario.', mtWarning, [mbOK], 0);
+      Exit;
+    end;
+
+    PrepareSignatureStampVariables(LCertificado.Alias);
+    GerarPDF(LArquivoPDF);
+
+    LResultado := LAssinador
+      .SetArquivo(LArquivoPDF)
+      .Executar;
+
+    if not LResultado.Sucesso then
+    begin
+      MessageDlg(LResultado.Mensagem, mtWarning, [mbOK], 0);
+      Exit;
+    end;
+
+    OpenFileInDefaultViewer(LResultado.ArquivoAssinado);
+    MessageDlg('PDF assinado com sucesso:' + sLineBreak + LResultado.ArquivoAssinado, mtInformation, [mbOK], 0);
+  except
+    on E: Exception do
+      MessageDlg('Falha no fluxo de assinatura: ' + E.Message, mtError, [mbOK], 0);
   end;
-
-  PrepareSignatureStampVariables(LCertificado.Alias);
-  GerarPDF(LArquivoPDF);
-
-  LResultado := LAssinador
-    .SetArquivo(LArquivoPDF)
-    .Executar;
-
-  if not LResultado.Sucesso then
-  begin
-    MessageDlg(LResultado.Mensagem, mtWarning, [mbOK], 0);
-    Exit;
-  end;
-
-  OpenFileInDefaultViewer(LResultado.ArquivoAssinado);
-  MessageDlg('PDF assinado com sucesso:' + sLineBreak + LResultado.ArquivoAssinado, mtInformation, [mbOK], 0);
 end;
 
 procedure TForm1.PopularMemTable;

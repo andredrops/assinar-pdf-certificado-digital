@@ -52,7 +52,7 @@ type
     function ExtractDigits(const AValue: string): string;
     function GetCertificateValidityByDocument: TStringList;
     function SelectCertificateAlias(const AAliases: TStrings; out ASelectedAlias: string; out ASelectedIndex: Integer): Boolean;
-    function RunProcessAndWait(const ACommandLine, AWorkingDir: string; out AExitCode: Cardinal): Boolean;
+//    function RunProcessAndWait(const ACommandLine, AWorkingDir: string; out AExitCode: Cardinal): Boolean;
   public
     class function New: IAssinarPDF;
     constructor Create;
@@ -119,6 +119,7 @@ var
   LAlias: string;
   LAliasIndex: Integer;
   LP: Integer;
+  LJSignPath: string;
 begin
   Result := Self;
   FCertificado.Selecionado := False;
@@ -127,10 +128,20 @@ begin
   FCertificado.Nome := '';
   FCertificado.Documento := '';
 
+  LJSignPath := GetJSignPathEfetivo;
+  if not FileExists(LJSignPath) then
+  begin
+    MessageDlg('JSignPdfC.exe nao encontrado em: ' + LJSignPath, mtError, [mbOK], 0);
+    Exit;
+  end;
+
   LAliases := GetWindowsCertificateAliases;
   try
     if LAliases.Count = 0 then
+    begin
+      MessageDlg('Nenhum certificado valido encontrado no repositorio WINDOWS-MY.', mtWarning, [mbOK], 0);
       Exit;
+    end;
 
     if not SelectCertificateAlias(LAliases, LAlias, LAliasIndex) then
       Exit;
@@ -164,17 +175,26 @@ begin
   if Trim(FPastaSaida) <> '' then
     Result := IncludeTrailingPathDelimiter(FPastaSaida)
   else
-    Result := IncludeTrailingPathDelimiter(GetExeDir + 'PDFAssinados');
+    Result := IncludeTrailingPathDelimiter(GetExeDir + 'AssinarPDF\PDFAssinados');
 end;
 
 function TAssinarPDF.GetJSignPathEfetivo: string;
+var
+  LPath1: string;
+  LPath2: string;
 begin
   if Trim(FJSignPath) <> '' then
     Exit(FJSignPath);
 
-  Result := GetExeDir + 'AssinarPDF\BIN\JSignPdf\JSignPdfC.exe';
-  if not FileExists(Result) then
-    Result := 'C:\Tools\JSignPdf\app\JSignPdf\JSignPdfC.exe';
+  LPath1 := ExpandFileName(GetExeDir + 'AssinarPDF\BIN\JSignPdfC.exe');
+  LPath2 := ExpandFileName(GetExeDir + '..\..\AssinarPDF\BIN\JSignPdfC.exe');
+
+  if FileExists(LPath1) then
+    Exit(LPath1);
+  if FileExists(LPath2) then
+    Exit(LPath2);
+
+  Result := LPath1;
 end;
 
 function TAssinarPDF.BuildSignedFileName: string;
@@ -183,33 +203,33 @@ begin
     ChangeFileExt(ExtractFileName(FArquivo), '') + FSufixoArquivo + '.pdf';
 end;
 
-function TAssinarPDF.RunProcessAndWait(const ACommandLine, AWorkingDir: string; out AExitCode: Cardinal): Boolean;
-var
-  LStartupInfo: TStartupInfo;
-  LProcessInfo: TProcessInformation;
-  LCmdLine: string;
-begin
-  Result := False;
-  AExitCode := Cardinal(-1);
-  ZeroMemory(@LStartupInfo, SizeOf(LStartupInfo));
-  ZeroMemory(@LProcessInfo, SizeOf(LProcessInfo));
-  LStartupInfo.cb := SizeOf(LStartupInfo);
-  LStartupInfo.dwFlags := STARTF_USESHOWWINDOW;
-  LStartupInfo.wShowWindow := SW_HIDE;
-
-  LCmdLine := ACommandLine;
-  if CreateProcess(nil, PChar(LCmdLine), nil, nil, False, CREATE_NO_WINDOW, nil, PChar(AWorkingDir), LStartupInfo, LProcessInfo) then
-  begin
-    try
-      WaitForSingleObject(LProcessInfo.hProcess, INFINITE);
-      GetExitCodeProcess(LProcessInfo.hProcess, AExitCode);
-      Result := True;
-    finally
-      CloseHandle(LProcessInfo.hThread);
-      CloseHandle(LProcessInfo.hProcess);
-    end;
-  end;
-end;
+//function TAssinarPDF.RunProcessAndWait(const ACommandLine, AWorkingDir: string; out AExitCode: Cardinal): Boolean;
+//var
+//  LStartupInfo: TStartupInfo;
+//  LProcessInfo: TProcessInformation;
+//  LCmdLine: string;
+//begin
+//  Result := False;
+//  AExitCode := Cardinal(-1);
+//  ZeroMemory(@LStartupInfo, SizeOf(LStartupInfo));
+//  ZeroMemory(@LProcessInfo, SizeOf(LProcessInfo));
+//  LStartupInfo.cb := SizeOf(LStartupInfo);
+//  LStartupInfo.dwFlags := STARTF_USESHOWWINDOW;
+//  LStartupInfo.wShowWindow := SW_HIDE;
+//
+//  LCmdLine := ACommandLine;
+//  if CreateProcess(nil, PChar(LCmdLine), nil, nil, False, CREATE_NO_WINDOW, nil, PChar(AWorkingDir), LStartupInfo, LProcessInfo) then
+//  begin
+//    try
+//      WaitForSingleObject(LProcessInfo.hProcess, INFINITE);
+//      GetExitCodeProcess(LProcessInfo.hProcess, AExitCode);
+//      Result := True;
+//    finally
+//      CloseHandle(LProcessInfo.hThread);
+//      CloseHandle(LProcessInfo.hProcess);
+//    end;
+//  end;
+//end;
 
 function TAssinarPDF.ExecuteAndCaptureOutputWithExitCode(const ACommandLine, AWorkingDir: string; out AExitCode: Cardinal): string;
 var
@@ -517,6 +537,7 @@ var
   LExitCode: Cardinal;
   LJSignPath: string;
   LPastaSaida: string;
+  LOutput: string;
 begin
   FillChar(Result, SizeOf(Result), 0);
   Result.Sucesso := False;
@@ -559,7 +580,8 @@ begin
     [LJSignPath, FCertificado.Indice, ExcludeTrailingPathDelimiter(LPastaSaida), FSufixoArquivo, FArquivo]
   );
 
-  if not RunProcessAndWait(LCmd, GetExeDir, LExitCode) then
+  LOutput := ExecuteAndCaptureOutputWithExitCode(LCmd, GetExeDir, LExitCode);
+  if LExitCode = Cardinal(-1) then
   begin
     Result.Mensagem := 'Falha ao executar processo de assinatura.';
     Exit;
@@ -573,6 +595,8 @@ begin
   if (LExitCode <> 0) or (not FileExists(Result.ArquivoAssinado)) then
   begin
     Result.Mensagem := Format('Falha na assinatura. Codigo de saida: %d', [LExitCode]);
+    if Trim(LOutput) <> '' then
+      Result.Mensagem := Result.Mensagem + sLineBreak + sLineBreak + 'Detalhes:' + sLineBreak + Trim(LOutput);
     Exit;
   end;
 

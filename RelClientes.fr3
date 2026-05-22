@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<TfrxReport Version="5.3.14" DotMatrixReport="False" IniFile="\Software\Fast Reports" PreviewOptions.Buttons="4095" PreviewOptions.Zoom="1" PrintOptions.Printer="Default" PrintOptions.PrintOnSheet="0" ReportOptions.CreateDate="46164,4228098611" ReportOptions.Description.Text="" ReportOptions.LastChange="46164,4276150116" ScriptLanguage="PascalScript" ScriptText.Text="begin&#13;&#10;&#13;&#10;end.">
+  <Datasets>
+    <item DataSet="frxDBClientes" DataSetName="frxDBClientes"/>
+  </Datasets>
+  <Variables>
+    <item Name="AssinadoPor"/>
+    <item Name="CpfCnpjAssinante"/>
+    <item Name="DataHoraAssinatura"/>
+    <item Name="AlgoritmoAssinatura"/>
+    <item Name="IdValidacao"/>
+    <item Name="UrlValidacao"/>
+  </Variables>
+  <TfrxDataPage Name="Data" Height="1000" Left="0" Top="0" Width="1000"/>
+  <TfrxReportPage Name="Page1" PaperWidth="210" PaperHeight="297" PaperSize="9" LeftMargin="10" RightMargin="10" TopMargin="10" BottomMargin="10" ColumnWidth="0" ColumnPositions.Text="" HGuides.Text="" VGuides.Text="">
+    <TfrxReportTitle Name="ReportTitle1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="22" Left="0" Top="18,89765" Width="718,1107">
+      <TfrxMemoView Name="MemoTitulo" Left="0" Top="0" Width="718,1107" Height="20" Font.Charset="1" Font.Color="0" Font.Height="-16" Font.Name="Arial" Font.Style="1" ParentFont="False" Text="Relatorio de Clientes"/>
+    </TfrxReportTitle>
+    <TfrxPageHeader Name="PageHeader1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="18" Left="0" Top="64,25201" Width="718,1107">
+      <TfrxMemoView Name="MemoH1" Left="0" Top="0" Width="50" Height="18" Font.Charset="1" Font.Color="0" Font.Height="-12" Font.Name="Arial" Font.Style="1" Frame.Typ="15" HAlign="haCenter" ParentFont="False" Text="ID"/>
+      <TfrxMemoView Name="MemoH2" Left="50" Top="0" Width="458" Height="18" Font.Charset="1" Font.Color="0" Font.Height="-12" Font.Name="Arial" Font.Style="1" Frame.Typ="15" ParentFont="False" Text="Nome"/>
+      <TfrxMemoView Name="MemoH3" Left="508" Top="0" Width="210,1107" Height="18" Font.Charset="1" Font.Color="0" Font.Height="-12" Font.Name="Arial" Font.Style="1" Frame.Typ="15" ParentFont="False" Text="Telefone"/>
+    </TfrxPageHeader>
+    <TfrxMasterData Name="MasterData1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="18" Left="0" Top="143,62214" Width="718,1107" ColumnWidth="0" ColumnGap="0" DataSet="frxDBClientes" DataSetName="frxDBClientes" RowCount="0">
+      <TfrxMemoView Name="MemoNome" Left="50" Top="0" Width="458" Height="18" Frame.Typ="15" Text="[frxDBClientes.&#34;Nome&#34;]"/>
+      <TfrxMemoView Name="MemoTel" Left="508" Top="0" Width="210,1107" Height="18" Frame.Typ="15" Text="[frxDBClientes.&#34;Telefone&#34;]"/>
+      <TfrxMemoView Name="Memo1" Left="0" Top="0" Width="49,81076" Height="18" Frame.Typ="15" Text="[frxDBClientes.&#34;id&#34;]"/>
+    </TfrxMasterData>
+    <TfrxPageFooter Name="PageFooter1" FillType="ftBrush" FillGap.Top="0" FillGap.Left="0" FillGap.Bottom="0" FillGap.Right="0" Height="163,35436" Left="0" Top="222,99227" Width="718,1107">
+      <TfrxMemoView Name="MemoAssinadoPor" Left="358,18893" Top="37,7953" Width="288,1107" Height="14" Text="Assinado por: [AssinadoPor]"/>
+      <TfrxMemoView Name="MemoCpf" Left="358,18893" Top="51,7953" Width="288,1107" Height="14" Text="CPF/CNPJ: [CpfCnpjAssinante]"/>
+      <TfrxMemoView Name="MemoDataHora" Left="358,18893" Top="65,7953" Width="288,1107" Height="14" Text="Data/Hora assinatura: [DataHoraAssinatura]"/>
+      <TfrxMemoView Name="MemoAlg" Left="358,18893" Top="79,7953" Width="288,1107" Height="14" Text="Algoritmo: [AlgoritmoAssinatura]"/>
+      <TfrxMemoView Name="MemoUrl" Left="358,18893" Top="107,7953" Width="288,1107" Height="14" Text="Validar em: [UrlValidacao]"/>
+      <TfrxLineView Name="LineAss" Left="358,18893" Top="129,7953" Width="180" Height="0" Color="0" Frame.Typ="4"/>
+      <TfrxMemoView Name="MemoAssinatura" Left="398,18893" Top="131,7953" Width="100" Height="14" HAlign="haCenter" Text="Assinatura"/>
+      <TfrxMemoView Name="MemoPagina" Left="608,66141" Top="143,13389" Width="98,1107" Height="14" HAlign="haRight" Text="Pagina [Page#] de [TotalPages#]"/>
+    </TfrxPageFooter>
+  </TfrxReportPage>
+</TfrxReport>

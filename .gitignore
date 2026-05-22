@@ -1,4 +1,4 @@
-﻿# Delphi build/output
+# Delphi build/output
 Win32/
 Win64/
 *.dcu
@@ -10,10 +10,12 @@ Win64/
 __history/
 __recovery/
 
-# Assinador empacotado (grande)
-AssinarPDF/bin/
-
 # logs/pdf gerados
-PDFAssinados/
+AssinarPDF/PDFAssinados/
 PDF_Assinados/
 *.log
+*.~dsk
+*.res
+
+# JSignPdf runtime local (muito grande para GitHub)
+AssinarPDF/BIN/runtime/
