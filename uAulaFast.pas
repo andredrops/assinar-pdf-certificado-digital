@@ -8,10 +8,13 @@ uses
   FireDAC.Comp.Client, FireDAC.Stan.Intf, FireDAC.Stan.Option,
   FireDAC.Stan.Param, FireDAC.Stan.Error, FireDAC.DatS, FireDAC.Phys.Intf,
   FireDAC.DApt.Intf, FireDAC.Comp.DataSet, Vcl.Grids, frxClass, frxDBSet, System.IOUtils,
-  System.UITypes;
+  System.UITypes, uPdfSignOverlay, uAssinarPDF, Vcl.ComCtrls, uAnexo.Types;
 
 type
-  TForm1 = class(TForm)
+  TfView = class(TForm)
+    pcPrincipal: TPageControl;
+    tsAssinatura: TTabSheet;
+    tsAnexoNuvem: TTabSheet;
     DBGrid1: TDBGrid;
     btnImprimir: TButton;
     btnAssinarPdf: TButton;
@@ -22,10 +25,38 @@ type
     frxDBClientes: TfrxDBDataset;
     Memo1: TMemo;
     Label1: TLabel;
+    btnCarregarCertificados: TButton;
+    btnSelecionarCertificado: TButton;
+    cbCertificados: TComboBox;
+    edtDescricao: TEdit;
+    edtAlias: TEdit;
+    edtIndice: TEdit;
+    edtNome: TEdit;
+    edtDocumento: TEdit;
+    edtValidoAte: TEdit;
+    lblDescricao: TLabel;
+    lblAlias: TLabel;
+    lblIndice: TLabel;
+    lblNome: TLabel;
+    lblDocumento: TLabel;
+    lblValidoAte: TLabel;
+    btnAnexoAnexar: TButton;
+    btnAnexoConfiguracoes: TButton;
+    btnAnexoVisualizar: TButton;
+    btnAnexoApagar: TButton;
+    gridAnexo: TDBGrid;
+    dsAnexo: TDataSource;
+    mtAnexo: TFDMemTable;
     procedure FormShow(Sender: TObject);
     procedure btnImprimirClick(Sender: TObject);
     procedure btnAssinarPdfClick(Sender: TObject);
     procedure btnDiagnosticoClick(Sender: TObject);
+    procedure btnCarregarCertificadosClick(Sender: TObject);
+    procedure btnSelecionarCertificadoClick(Sender: TObject);
+    procedure btnAnexoAnexarClick(Sender: TObject);
+    procedure btnAnexoConfiguracoesClick(Sender: TObject);
+    procedure btnAnexoVisualizarClick(Sender: TObject);
+    procedure btnAnexoApagarClick(Sender: TObject);
   private
     FStampAssinadoPor: string;
     FStampCpfCnpj: string;
@@ -33,7 +64,16 @@ type
     FStampAlgoritmo: string;
     FStampIdValidacao: string;
     FStampUrlValidacao: string;
+    FPopupAssinatura: TObject;
+    FAnexoNextId: Integer;
+    FListaCertificados: TArray<TAssinarPDFCertificadoInfo>;
+    FCertificadoAssinatura: TAssinarPDFCertificadoInfo;
     procedure PopularMemTable;
+    procedure AddUploadRowsAnexo(const AResult: TUploadBatchResult);
+    function HasAnexoSelection: Boolean;
+    procedure LimparEditsCertificado;
+    procedure PreencherEditsCertificado(const AInfo: TAssinarPDFCertificadoInfo);
+    function BuildCertificadoInfoFromEdits: TAssinarPDFCertificadoInfo;
     function GetAppDir: string;
     function GetReportPath: string;
     function GetSignedOutputDir: string;
@@ -51,6 +91,9 @@ type
     procedure ExportReportToPdf(const AOutputPdfPath: string);
     procedure OpenFileInDefaultViewer(const AFilePath: string);
     procedure ValidateGeneratedPdf(const AFilePath: string);
+    function ExecutarAssinaturaViaPopup(const ASetStatus: TPdfSignStatusProc): Boolean;
+    function FindFastReportPreviewForm: TCustomForm;
+    procedure AbrirPreviewComBotaoAssinar;
     function BuildDiagnosticsLogName: string;
     procedure WriteDiagnosticsLog(const ALogFileName: string);
     { Private declarations }
@@ -59,24 +102,64 @@ type
   end;
 
 var
-  Form1: TForm1;
+  fView: TfView;
 
 implementation
 
 {$R *.dfm}
 
 uses
- frxDesgn, frxExportPDF, System.StrUtils, Winapi.ShellAPI, uAssinarPDF;
+ frxDesgn, frxExportPDF, System.StrUtils, Winapi.ShellAPI, uAnexo;
 
 const
   C_JSignPdfCliRelativePath = '.\AssinarPDF\BIN\JSignPdfC.exe';
 
-procedure TForm1.FormShow(Sender: TObject);
+procedure TfView.FormShow(Sender: TObject);
 begin
   PopularMemTable;
+  FAnexoNextId := 1;
+  mtAnexo.Close;
+  mtAnexo.Open;
+  LimparEditsCertificado;
 end;
 
-procedure TForm1.btnImprimirClick(Sender: TObject);
+procedure TfView.LimparEditsCertificado;
+begin
+  edtDescricao.Text := '';
+  edtAlias.Text := '';
+  edtIndice.Text := '';
+  edtNome.Text := '';
+  edtDocumento.Text := '';
+  edtValidoAte.Text := '';
+end;
+
+procedure TfView.PreencherEditsCertificado(const AInfo: TAssinarPDFCertificadoInfo);
+begin
+  edtDescricao.Text := AInfo.Descricao;
+  edtAlias.Text := AInfo.AliasCompleto;
+  edtIndice.Text := IntToStr(AInfo.Indice);
+  edtNome.Text := AInfo.NomeTitular;
+  edtDocumento.Text := AInfo.Documento;
+  if AInfo.ValidoAte > 0 then
+    edtValidoAte.Text := FormatDateTime('dd/mm/yyyy', AInfo.ValidoAte)
+  else
+    edtValidoAte.Text := '';
+end;
+
+function TfView.BuildCertificadoInfoFromEdits: TAssinarPDFCertificadoInfo;
+begin
+  FillChar(Result, SizeOf(Result), 0);
+  Result.Indice := StrToIntDef(Trim(edtIndice.Text), -1);
+  Result.Descricao := Trim(edtDescricao.Text);
+  Result.AliasCompleto := Trim(edtAlias.Text);
+  Result.NomeTitular := Trim(edtNome.Text);
+  Result.Documento := Trim(edtDocumento.Text);
+  Result.ValidoAte := 0;
+  if Trim(edtValidoAte.Text) <> '' then
+    Result.ValidoAte := StrToDateDef(edtValidoAte.Text, 0);
+end;
+
+procedure TfView.btnImprimirClick(Sender: TObject);
 begin
   frxRelClientes.LoadFromFile(GetReportPath);
 
@@ -87,12 +170,12 @@ begin
 	  frxRelClientes.ShowReport;
 end;
 
-function TForm1.GetAppDir: string;
+function TfView.GetAppDir: string;
 begin
   Result := IncludeTrailingPathDelimiter(ExtractFilePath(ParamStr(0)));
 end;
 
-function TForm1.GetReportPath: string;
+function TfView.GetReportPath: string;
 var
   LPath1: string;
   LPath2: string;
@@ -108,35 +191,35 @@ begin
   Result := LPath1;
 end;
 
-function TForm1.GetSignedOutputDir: string;
+function TfView.GetSignedOutputDir: string;
 begin
   Result := IncludeTrailingPathDelimiter(GetAppDir + 'AssinarPDF\PDFAssinados');
 end;
 
-function TForm1.GetJSignPdfCliPath: string;
+function TfView.GetJSignPdfCliPath: string;
 begin
   Result := ExpandFileName(GetAppDir + C_JSignPdfCliRelativePath);
 end;
 
-function TForm1.BuildUnsignedPdfName: string;
+function TfView.BuildUnsignedPdfName: string;
 begin
   Result := Format('RelClientes_%s.pdf', [FormatDateTime('yyyymmdd_hhnnss', Now)]);
 end;
 
-function TForm1.BuildDiagnosticsLogName: string;
+function TfView.BuildDiagnosticsLogName: string;
 begin
   Result := GetSignedOutputDir + Format('diagnostico_jsignpdf_%s.log',
     [FormatDateTime('yyyymmdd_hhnnss', Now)]);
 end;
 
-function TForm1.ExecuteAndCaptureOutput(const ACommandLine, AWorkingDir: string): string;
+function TfView.ExecuteAndCaptureOutput(const ACommandLine, AWorkingDir: string): string;
 var
   ExitCode: Cardinal;
 begin
   Result := ExecuteAndCaptureOutputWithExitCode(ACommandLine, AWorkingDir, ExitCode);
 end;
 
-function TForm1.ExecuteAndCaptureOutputWithExitCode(const ACommandLine, AWorkingDir: string; out AExitCode: Cardinal): string;
+function TfView.ExecuteAndCaptureOutputWithExitCode(const ACommandLine, AWorkingDir: string; out AExitCode: Cardinal): string;
 var
   SA: TSecurityAttributes;
   ReadPipe: THandle;
@@ -220,7 +303,7 @@ begin
   end;
 end;
 
-function TForm1.GetWindowsCertificateAliases: TStringList;
+function TfView.GetWindowsCertificateAliases: TStringList;
 var
   Output: string;
   Lines: TStringList;
@@ -313,7 +396,7 @@ end;
 //  end;
 //end;
 
-procedure TForm1.ExportReportToPdf(const AOutputPdfPath: string);
+procedure TfView.ExportReportToPdf(const AOutputPdfPath: string);
 var
   LPdfExport: TfrxPDFExport;
   LPrepared: Boolean;
@@ -341,14 +424,14 @@ begin
   ValidateGeneratedPdf(AOutputPdfPath);
 end;
 
-procedure TForm1.GerarPDF(out AArquivoPDF: string);
+procedure TfView.GerarPDF(out AArquivoPDF: string);
 begin
   ForceDirectories(GetSignedOutputDir);
   AArquivoPDF := IncludeTrailingPathDelimiter(GetSignedOutputDir) + BuildUnsignedPdfName;
   ExportReportToPdf(AArquivoPDF);
 end;
 
-procedure TForm1.ValidateGeneratedPdf(const AFilePath: string);
+procedure TfView.ValidateGeneratedPdf(const AFilePath: string);
 var
   LContent: string;
   LFileStream: TFileStream;
@@ -372,12 +455,12 @@ begin
   end;
 end;
 
-procedure TForm1.SetReportVariable(const AName, AValue: string);
+procedure TfView.SetReportVariable(const AName, AValue: string);
 begin
   frxRelClientes.Variables[AName] := QuotedStr(AValue);
 end;
 
-procedure TForm1.PrepareSignatureStampVariables(const ASelectedAlias: string);
+procedure TfView.PrepareSignatureStampVariables(const ASelectedAlias: string);
 var
   P: Integer;
   SignerName: string;
@@ -409,7 +492,7 @@ begin
   FStampUrlValidacao := 'https://validar.iti.gov.br/';
 end;
 
-procedure TForm1.ApplySignatureStampVariablesToReport;
+procedure TfView.ApplySignatureStampVariablesToReport;
 begin
   SetReportVariable('AssinadoPor', FStampAssinadoPor);
   SetReportVariable('CpfCnpjAssinante', FStampCpfCnpj);
@@ -419,12 +502,12 @@ begin
   SetReportVariable('UrlValidacao', FStampUrlValidacao);
 end;
 
-procedure TForm1.OpenFileInDefaultViewer(const AFilePath: string);
+procedure TfView.OpenFileInDefaultViewer(const AFilePath: string);
 begin
   ShellExecute(Handle, 'open', PChar(AFilePath), nil, nil, SW_SHOWNORMAL);
 end;
 
-procedure TForm1.WriteDiagnosticsLog(const ALogFileName: string);
+procedure TfView.WriteDiagnosticsLog(const ALogFileName: string);
 var
   Log: TStringList;
   ExitCode: Cardinal;
@@ -495,7 +578,7 @@ begin
   end;
 end;
 
-procedure TForm1.btnDiagnosticoClick(Sender: TObject);
+procedure TfView.btnDiagnosticoClick(Sender: TObject);
 var
   LogFile: string;
 begin
@@ -505,45 +588,226 @@ begin
   OpenFileInDefaultViewer(LogFile);
 end;
 
-procedure TForm1.btnAssinarPdfClick(Sender: TObject);
+procedure TfView.btnCarregarCertificadosClick(Sender: TObject);
 var
   LAssinador: IAssinarPDF;
-  LCertificado: TAssinarPDFCertificado;
-  LArquivoPDF: string;
-  LResultado: TAssinarPDFResultado;
+  LI: Integer;
+begin
+  LAssinador := TAssinarPDF.New;
+  FListaCertificados := LAssinador.ListarCertificadosInfo;
+  cbCertificados.Items.Clear;
+  for LI := 0 to High(FListaCertificados) do
+    cbCertificados.Items.Add(FListaCertificados[LI].Descricao);
+
+  if Length(FListaCertificados) = 0 then
+  begin
+    MessageDlg('Nenhum certificado encontrado no repositorio WINDOWS-MY.', mtWarning, [mbOK], 0);
+    LimparEditsCertificado;
+    Exit;
+  end;
+
+  cbCertificados.ItemIndex := 0;
+  MessageDlg('Certificados carregados com sucesso.', mtInformation, [mbOK], 0);
+end;
+
+procedure TfView.btnSelecionarCertificadoClick(Sender: TObject);
+var
+  LIndex: Integer;
+begin
+  if Length(FListaCertificados) = 0 then
+  begin
+    MessageDlg('Carregue os certificados primeiro.', mtWarning, [mbOK], 0);
+    Exit;
+  end;
+
+  LIndex := cbCertificados.ItemIndex;
+  if (LIndex < 0) or (LIndex > High(FListaCertificados)) then
+  begin
+    MessageDlg('Selecione um certificado na lista.', mtWarning, [mbOK], 0);
+    Exit;
+  end;
+
+  PreencherEditsCertificado(FListaCertificados[LIndex]);
+end;
+
+procedure TfView.AddUploadRowsAnexo(const AResult: TUploadBatchResult);
+var
+  LItem: TUploadItemResult;
+  LDescricao: string;
+  LExt: string;
+begin
+  if AResult = nil then
+    Exit;
+
+  for LItem in AResult.Items do
+  begin
+    if not LItem.Success then
+      Continue;
+
+    LDescricao := TPath.GetFileNameWithoutExtension(LItem.FileName);
+    LExt := TPath.GetExtension(LItem.FileName);
+    if (LExt <> '') and (LExt[1] = '.') then
+      Delete(LExt, 1, 1);
+
+    mtAnexo.Append;
+    mtAnexo.FieldByName('ID').AsInteger := FAnexoNextId;
+    mtAnexo.FieldByName('Descricao').AsString := LDescricao;
+    mtAnexo.FieldByName('Extensao').AsString := LExt;
+    mtAnexo.FieldByName('Tamanho').AsLargeInt := LItem.FileSize;
+    mtAnexo.FieldByName('Chave').AsString := LItem.RemotePath;
+    mtAnexo.FieldByName('NomeArquivo').AsString := LItem.FileName;
+    mtAnexo.Post;
+    Inc(FAnexoNextId);
+  end;
+end;
+
+function TfView.HasAnexoSelection: Boolean;
+begin
+  Result := (mtAnexo <> nil) and mtAnexo.Active and (not mtAnexo.IsEmpty);
+end;
+
+procedure TfView.btnAnexoAnexarClick(Sender: TObject);
+var
+  LResult: TUploadBatchResult;
+begin
+  LResult := TAnexo.Execute;
+  try
+    AddUploadRowsAnexo(LResult);
+  finally
+    LResult.Free;
+  end;
+end;
+
+procedure TfView.btnAnexoConfiguracoesClick(Sender: TObject);
+begin
+  TAnexo.Configurar;
+end;
+
+procedure TfView.btnAnexoVisualizarClick(Sender: TObject);
+begin
+  if not HasAnexoSelection then
+    Exit;
+
+  TAnexo.Visualizar(
+    mtAnexo.FieldByName('Chave').AsString,
+    mtAnexo.FieldByName('NomeArquivo').AsString
+  );
+end;
+
+procedure TfView.btnAnexoApagarClick(Sender: TObject);
+var
+  LChave: string;
+begin
+  if not HasAnexoSelection then
+    Exit;
+
+  if MessageDlg('Tem certeza que deseja apagar este anexo?', mtConfirmation, [mbYes, mbNo], 0) <> mrYes then
+    Exit;
+
+  LChave := mtAnexo.FieldByName('Chave').AsString;
+  TAnexo.Apagar(LChave);
+  mtAnexo.Delete;
+end;
+
+procedure TfView.btnAssinarPdfClick(Sender: TObject);
 begin
   try
-    LAssinador := TAssinarPDF.New;
-    LAssinador.SelecionarCertificado;
-    LCertificado := LAssinador.GetCertificadoSelecionado;
-    if not LCertificado.Selecionado then
+    FCertificadoAssinatura := BuildCertificadoInfoFromEdits;
+    if (FCertificadoAssinatura.Indice < 0) or (Trim(FCertificadoAssinatura.AliasCompleto) = '') then
     begin
-      MessageDlg('Assinatura cancelada pelo usuario.', mtWarning, [mbOK], 0);
+      MessageDlg('Selecione um certificado antes de assinar.', mtWarning, [mbOK], 0);
       Exit;
     end;
 
-    PrepareSignatureStampVariables(LCertificado.Alias);
-    GerarPDF(LArquivoPDF);
-
-    LResultado := LAssinador
-      .SetArquivo(LArquivoPDF)
-      .Executar;
-
-    if not LResultado.Sucesso then
-    begin
-      MessageDlg(LResultado.Mensagem, mtWarning, [mbOK], 0);
-      Exit;
-    end;
-
-    OpenFileInDefaultViewer(LResultado.ArquivoAssinado);
-    MessageDlg('PDF assinado com sucesso:' + sLineBreak + LResultado.ArquivoAssinado, mtInformation, [mbOK], 0);
+    AbrirPreviewComBotaoAssinar;
   except
     on E: Exception do
       MessageDlg('Falha no fluxo de assinatura: ' + E.Message, mtError, [mbOK], 0);
   end;
 end;
 
-procedure TForm1.PopularMemTable;
+function TfView.ExecutarAssinaturaViaPopup(const ASetStatus: TPdfSignStatusProc): Boolean;
+var
+  LAssinador: IAssinarPDF;
+  LArquivoPDF: string;
+  LResultado: TAssinarPDFResultado;
+begin
+  LAssinador := TAssinarPDF.New;
+  LAssinador.SetCertificadoInfo(FCertificadoAssinatura);
+
+  PrepareSignatureStampVariables(FCertificadoAssinatura.AliasCompleto);
+  GerarPDF(LArquivoPDF);
+
+  if Assigned(ASetStatus) then
+    ASetStatus('Assinando...');
+
+  LResultado := LAssinador
+    .SetArquivo(LArquivoPDF)
+    .Executar;
+
+  if not LResultado.Sucesso then
+  begin
+    MessageDlg(LResultado.Mensagem, mtWarning, [mbOK], 0);
+    Exit(False);
+  end;
+
+  OpenFileInDefaultViewer(LResultado.ArquivoAssinado);
+  MessageDlg('PDF assinado com sucesso:' + sLineBreak + LResultado.ArquivoAssinado, mtInformation, [mbOK], 0);
+  Result := True;
+end;
+
+function TfView.FindFastReportPreviewForm: TCustomForm;
+var
+  LI: Integer;
+  LForm: TCustomForm;
+begin
+  Result := nil;
+  for LI := Screen.FormCount - 1 downto 0 do
+  begin
+    LForm := Screen.Forms[LI];
+    if LForm = Self then
+      Continue;
+    if (Pos('frxpreview', LowerCase(LForm.ClassName)) > 0) or
+       SameText(LForm.Caption, 'Preview') then
+      Exit(LForm);
+  end;
+end;
+
+procedure TfView.AbrirPreviewComBotaoAssinar;
+var
+  LPreviewForm: TCustomForm;
+  LOverlay: TPdfSignOverlay;
+begin
+  frxRelClientes.LoadFromFile(GetReportPath);
+  ApplySignatureStampVariablesToReport;
+  if not frxRelClientes.PrepareReport(True) then
+    raise Exception.Create('Falha ao preparar o relatorio para preview.');
+
+  frxRelClientes.PreviewOptions.Modal := False;
+  frxRelClientes.ShowPreparedReport;
+  Application.ProcessMessages;
+
+  LPreviewForm := FindFastReportPreviewForm;
+  if LPreviewForm = nil then
+  begin
+    MessageDlg('Preview aberto, mas nao foi possivel acoplar o botao flutuante de assinatura.', mtWarning, [mbOK], 0);
+    Exit;
+  end;
+
+  if Assigned(FPopupAssinatura) then
+    FreeAndNil(FPopupAssinatura);
+
+  LOverlay := TPdfSignOverlay.Create(LPreviewForm,
+    function(const ASetStatus: TPdfSignStatusProc): Boolean
+    begin
+      Result := ExecutarAssinaturaViaPopup(ASetStatus);
+    end
+  );
+  FPopupAssinatura := LOverlay;
+  LOverlay.Show;
+end;
+
+procedure TfView.PopularMemTable;
 const
   Heroes: array[0..14] of string = (
     'Superman', 'Batman', 'Mulher Maravilha', 'Flash', 'Aquaman',

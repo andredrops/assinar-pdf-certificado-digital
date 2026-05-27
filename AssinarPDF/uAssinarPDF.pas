@@ -7,6 +7,15 @@ uses
   System.StrUtils, System.UITypes;
 
 type
+  TAssinarPDFCertificadoInfo = record
+    Descricao: string;
+    AliasCompleto: string;
+    Indice: Integer;
+    NomeTitular: string;
+    Documento: string;
+    ValidoAte: TDateTime;
+  end;
+
   TAssinarPDFCertificado = record
     Selecionado: Boolean;
     Alias: string;
@@ -31,6 +40,8 @@ type
     function SetPastaSaida(const APastaSaida: string): IAssinarPDF;
     function SetJSignPath(const AJSignPath: string): IAssinarPDF;
     function SetSufixoArquivo(const ASufixo: string): IAssinarPDF;
+    function SetCertificadoInfo(const ACertificadoInfo: TAssinarPDFCertificadoInfo): IAssinarPDF;
+    function ListarCertificadosInfo: TArray<TAssinarPDFCertificadoInfo>;
     function SelecionarCertificado: IAssinarPDF;
     function GetCertificadoSelecionado: TAssinarPDFCertificado;
     function Executar: TAssinarPDFResultado;
@@ -43,6 +54,7 @@ type
     FJSignPath: string;
     FSufixoArquivo: string;
     FCertificado: TAssinarPDFCertificado;
+    FCertificadoInfo: TAssinarPDFCertificadoInfo;
     function GetExeDir: string;
     function GetPastaSaidaEfetiva: string;
     function GetJSignPathEfetivo: string;
@@ -50,6 +62,7 @@ type
     function ExecuteAndCaptureOutputWithExitCode(const ACommandLine, AWorkingDir: string; out AExitCode: Cardinal): string;
     function GetWindowsCertificateAliases: TStringList;
     function ExtractDigits(const AValue: string): string;
+    function TryParseDateYMD(const AValue: string; out ADate: TDateTime): Boolean;
     function GetCertificateValidityByDocument: TStringList;
     function SelectCertificateAlias(const AAliases: TStrings; out ASelectedAlias: string; out ASelectedIndex: Integer): Boolean;
 //    function RunProcessAndWait(const ACommandLine, AWorkingDir: string; out AExitCode: Cardinal): Boolean;
@@ -60,6 +73,8 @@ type
     function SetPastaSaida(const APastaSaida: string): IAssinarPDF;
     function SetJSignPath(const AJSignPath: string): IAssinarPDF;
     function SetSufixoArquivo(const ASufixo: string): IAssinarPDF;
+    function SetCertificadoInfo(const ACertificadoInfo: TAssinarPDFCertificadoInfo): IAssinarPDF;
+    function ListarCertificadosInfo: TArray<TAssinarPDFCertificadoInfo>;
     function SelecionarCertificado: IAssinarPDF;
     function GetCertificadoSelecionado: TAssinarPDFCertificado;
     function Executar: TAssinarPDFResultado;
@@ -77,6 +92,8 @@ begin
   FSufixoArquivo := '_assinado';
   FillChar(FCertificado, SizeOf(FCertificado), 0);
   FCertificado.Indice := -1;
+  FillChar(FCertificadoInfo, SizeOf(FCertificadoInfo), 0);
+  FCertificadoInfo.Indice := -1;
 end;
 
 class function TAssinarPDF.New: IAssinarPDF;
@@ -105,6 +122,12 @@ end;
 function TAssinarPDF.SetSufixoArquivo(const ASufixo: string): IAssinarPDF;
 begin
   FSufixoArquivo := ASufixo;
+  Result := Self;
+end;
+
+function TAssinarPDF.SetCertificadoInfo(const ACertificadoInfo: TAssinarPDFCertificadoInfo): IAssinarPDF;
+begin
+  FCertificadoInfo := ACertificadoInfo;
   Result := Self;
 end;
 
@@ -364,6 +387,84 @@ begin
       Result := Result + AValue[LI];
 end;
 
+function TAssinarPDF.TryParseDateYMD(const AValue: string; out ADate: TDateTime): Boolean;
+var
+  LAno: Word;
+  LMes: Word;
+  LDia: Word;
+begin
+  Result := False;
+  ADate := 0;
+  if Length(AValue) <> 10 then
+    Exit;
+  if (AValue[5] <> '-') or (AValue[8] <> '-') then
+    Exit;
+
+  try
+    LAno := StrToInt(Copy(AValue, 1, 4));
+    LMes := StrToInt(Copy(AValue, 6, 2));
+    LDia := StrToInt(Copy(AValue, 9, 2));
+    ADate := EncodeDate(LAno, LMes, LDia);
+    Result := True;
+  except
+    Result := False;
+  end;
+end;
+
+function TAssinarPDF.ListarCertificadosInfo: TArray<TAssinarPDFCertificadoInfo>;
+var
+  LAliases: TStringList;
+  LValidityByDoc: TStringList;
+  LI: Integer;
+  LAlias: string;
+  LP: Integer;
+  LDoc: string;
+  LNome: string;
+  LMeta: string;
+  LParts: TArray<string>;
+  LValidade: TDateTime;
+begin
+  SetLength(Result, 0);
+  LAliases := GetWindowsCertificateAliases;
+  LValidityByDoc := GetCertificateValidityByDocument;
+  try
+    SetLength(Result, LAliases.Count);
+    for LI := 0 to LAliases.Count - 1 do
+    begin
+      LAlias := LAliases[LI];
+      LP := LastDelimiter(':', LAlias);
+      if LP > 0 then
+      begin
+        LNome := Trim(Copy(LAlias, 1, LP - 1));
+        LDoc := ExtractDigits(Copy(LAlias, LP + 1, MaxInt));
+      end
+      else
+      begin
+        LNome := LAlias;
+        LDoc := '';
+      end;
+
+      Result[LI].Indice := LI;
+      Result[LI].AliasCompleto := LAlias;
+      Result[LI].NomeTitular := LNome;
+      Result[LI].Documento := LDoc;
+      Result[LI].Descricao := LNome + ' - ' + LDoc;
+      Result[LI].ValidoAte := 0;
+
+      LMeta := LValidityByDoc.Values[LDoc];
+      if LMeta <> '' then
+      begin
+        LParts := LMeta.Split(['|']);
+        if (Length(LParts) > 1) and TryParseDateYMD(Trim(LParts[1]), LValidade) then
+          Result[LI].ValidoAte := LValidade;
+      end;
+    end;
+  finally
+    LValidityByDoc.Free;
+    LAliases.Free;
+  end;
+end;
+
 function TAssinarPDF.GetCertificateValidityByDocument: TStringList;
 var
   LCmd: string;
@@ -567,17 +668,21 @@ begin
   LPastaSaida := GetPastaSaidaEfetiva;
   ForceDirectories(LPastaSaida);
 
-  if not FCertificado.Selecionado then
-    SelecionarCertificado;
-  if not FCertificado.Selecionado then
+  if (FCertificadoInfo.Indice < 0) or (Trim(FCertificadoInfo.AliasCompleto) = '') then
   begin
-    Result.Mensagem := 'Assinatura cancelada pelo usuario.';
+    Result.Mensagem := 'Dados do certificado nao informados.';
+    Exit;
+  end;
+
+  if (FCertificadoInfo.ValidoAte > 0) and (Date > Trunc(FCertificadoInfo.ValidoAte)) then
+  begin
+    Result.Mensagem := 'Certificado selecionado esta vencido em ' + FormatDateTime('dd/mm/yyyy', FCertificadoInfo.ValidoAte) + '.';
     Exit;
   end;
 
   LCmd := Format(
     '"%s" -kst WINDOWS-MY -ki %d -ha SHA256 -d "%s" -os "%s" "%s"',
-    [LJSignPath, FCertificado.Indice, ExcludeTrailingPathDelimiter(LPastaSaida), FSufixoArquivo, FArquivo]
+    [LJSignPath, FCertificadoInfo.Indice, ExcludeTrailingPathDelimiter(LPastaSaida), FSufixoArquivo, FArquivo]
   );
 
   LOutput := ExecuteAndCaptureOutputWithExitCode(LCmd, GetExeDir, LExitCode);
@@ -588,8 +693,8 @@ begin
   end;
 
   Result.CodigoSaida := LExitCode;
-  Result.CertificadoAlias := FCertificado.Alias;
-  Result.CertificadoIndice := FCertificado.Indice;
+  Result.CertificadoAlias := FCertificadoInfo.AliasCompleto;
+  Result.CertificadoIndice := FCertificadoInfo.Indice;
   Result.ArquivoAssinado := BuildSignedFileName;
 
   if (LExitCode <> 0) or (not FileExists(Result.ArquivoAssinado)) then
